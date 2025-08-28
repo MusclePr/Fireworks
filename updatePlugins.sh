@@ -111,13 +111,6 @@ function DownloadFromSpigot()
 # 常にスクリプトのあるディレクトリで実行
 cd "$(dirname "$0")"
 
-if [ ! -f .env ]; then
-    echo ".env file was not found."
-    exit 1
-fi
-
-source .env
-
 # ダウンロード先ディレクトリ
 DEST_DIR="./plugins"
 mkdir -p "${DEST_DIR}"
