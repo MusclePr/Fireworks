@@ -99,7 +99,7 @@ public class FireworksPlugin extends JavaPlugin {
                     if (time >= 13000 && time <= 23000) {
                         world.getEntitiesByClass(org.bukkit.entity.ArmorStand.class).stream()
                             .filter(as -> as.getCustomName() != null && as.getCustomName().startsWith("花火"))
-                            .forEach(as -> launchHeartFirework(world, as));
+                            .forEach(as -> launchGrateWallFirework(world, as));
                     }
                 });
                 fireworkStage = 5;
@@ -130,14 +130,24 @@ public class FireworksPlugin extends JavaPlugin {
     }
 
     // フィナーレ用水平1列16発×強さ0,1,2,3の合計64発同時発射
-    private void launchHeartFirework(org.bukkit.World world, org.bukkit.entity.ArmorStand as) {
-        Location baseLoc = as.getLocation().add(0, 10, 0); // 高さ10に水平配置
+    private void launchGrateWallFirework(org.bukkit.World world, org.bukkit.entity.ArmorStand as) {
+    Location baseLoc = as.getLocation().add(0, 10, 0); // 高さ10に水平配置
+    // ArmorStand の向き(Yaw)に合わせてローカルXオフセットをワールド座標に回転変換
+    float yaw = as.getLocation().getYaw();
+    double rad = Math.toRadians(yaw);
+    double forwardX = -Math.sin(rad);
+    double forwardZ = Math.cos(rad);
+    double rightX = Math.cos(rad);
+    double rightZ = Math.sin(rad);
         int count = 16;
         double spacing = 4.0;
         for (int power = 0; power <= 3; power++) {
             for (int i = 0; i < count; i++) {
                 double x = (i - (count-1)/2.0) * spacing;
-                Location loc = baseLoc.clone().add(x, 0, 0);
+        // ローカル座標 (x, 0) をスタンド向きに合わせて回転してワールド座標に変換
+        double worldOffsetX = x * rightX + 0.0 * forwardX;
+        double worldOffsetZ = x * rightZ + 0.0 * forwardZ;
+        Location loc = baseLoc.clone().add(worldOffsetX, 0, worldOffsetZ);
                 FireworkEffectParams effect = new FireworkEffectParams();
                 effect.type = Type.BALL_LARGE;
                 effect.colors = new Color[]{Color.RED, Color.ORANGE, Color.YELLOW, Color.GREEN, Color.BLUE, Color.AQUA, Color.PURPLE};
@@ -157,24 +167,40 @@ public class FireworksPlugin extends JavaPlugin {
         int count = getCount(alignType);
         double[] offsets = getOffsets(alignType);
         FireworkEffectParams effect = new FireworkEffectParams();
+        // ArmorStand の向き(Yaw)に合わせてローカル座標を回転させる準備
+        float yaw = as.getLocation().getYaw();
+        double rad = Math.toRadians(yaw);
+        // Bukkit の yaw に対する前方ベクトルと右方向ベクトル
+        double forwardX = -Math.sin(rad);
+        double forwardZ = Math.cos(rad);
+        double rightX = Math.cos(rad);
+        double rightZ = Math.sin(rad);
         for (int i = 0; i < count; i++) {
             Location loc = baseLoc.clone();
+            double localX = 0.0; // スタンド基準の右方向成分
+            double localZ = 0.0; // スタンド基準の前方向成分
             if (pattern == 0) {
-                // 左右から順番（type0）: X軸にオフセット
-                loc.add(offsets[i], 0, 0);
+                // 左右から順番（type0）: ローカル X 軸にオフセット
+                localX = offsets[i];
             } else if (pattern == 1) {
-                // クロス（type1）: X/Z軸に斜めオフセット
+                // クロス（type1）: ローカル X/Z 軸に斜めオフセット
                 double cross = offsets[i];
-                loc.add(cross, 0, cross * 0.5);
+                localX = cross;
+                localZ = cross * 0.5;
                 effect.randomColor();
             } else if (pattern == 2) {
-                // 円形（type2）: 円周上に配置
+                // 円形（type2）: ローカル座標系で円周上に配置
                 double r = 6.0;
                 double angle = 2 * Math.PI * i / count;
-                loc.add(r * Math.cos(angle), 0, r * Math.sin(angle));
+                localX = r * Math.cos(angle);
+                localZ = r * Math.sin(angle);
                 effect.randomColor();
                 effect.randomPower();
             }
+            // ローカル座標 (localX, localZ) を ArmorStand の向きに合わせてワールド座標へ回転変換
+            double worldOffsetX = localX * rightX + localZ * forwardX;
+            double worldOffsetZ = localX * rightZ + localZ * forwardZ;
+            loc.add(worldOffsetX, 0, worldOffsetZ);
             createFirework(world, loc, effect);
         }
     }
