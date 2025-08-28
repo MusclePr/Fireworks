@@ -1,0 +1,11 @@
+name: Fireworks
+main: com.abcd.fireworks.FireworksPlugin
+version: 1.0.0
+description: Fireworks Paper Plugin
+api-version: 1.20
+commands:
+  fireworks:
+    description: 花火の打ち上げ開始・停止
+    usage: /fireworks <start|stop>
+    permission: fireworks.use
+    permission-message: §c権限がありません。
