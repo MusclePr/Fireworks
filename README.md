@@ -1,7 +1,7 @@
 # Fireworks Paper Plugin
 
 ## 概要
-Minecraft PaperMC 1.21.8 対応の花火演出プラグインです。
+Minecraft PaperMC 26.3 対応の花火演出プラグインです。
 夜間に「花火」と名前が付いた防具立てから自動で花火を打ち上げます。
 
 ## 主な機能
@@ -26,8 +26,8 @@ Minecraft PaperMC 1.21.8 対応の花火演出プラグインです。
 3. `/fireworks start` で花火演出開始
 
 ## 動作環境
-- Minecraft PaperMC 1.21.8
-- Java 21
+- Minecraft PaperMC 26.3
+- Java 25
 
 ---
 

@@ -9,7 +9,7 @@ services:
       # Server
       EULA: "true"
       TYPE: "PAPER"
-      VERSION: "1.21.8"
+      #VERSION: "1.21.8"
       # RCON
       ENABLE_RCON: "true"
       RCON_PASSWORD: "${RCON_PASSWORD:-AdminPassword}"

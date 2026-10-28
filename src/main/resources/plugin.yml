@@ -2,7 +2,7 @@ name: Fireworks
 main: com.abcd.fireworks.FireworksPlugin
 version: 1.0.0
 description: Fireworks Paper Plugin
-api-version: 1.20
+api-version: '26.3'
 commands:
   fireworks:
     description: 花火の打ち上げ開始・停止
