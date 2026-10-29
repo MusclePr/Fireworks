@@ -2,7 +2,10 @@ package com.abcd.fireworks;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Firework;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.FireworkEffect;
 import org.bukkit.FireworkEffect.Type;
@@ -10,122 +13,251 @@ import org.bukkit.Color;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+
 public class FireworksPlugin extends JavaPlugin {
-    private BukkitTask fireworkTask;
-    private boolean running = false;
-    private int fireworkStage = 0;
-    private long stageStartTick = 0;
+    private static final String USAGE = "§c使い方: /fireworks <start|stop> [ワールド名] [now]";
+
+    // ワールドごとの打ち上げ状態
+    private final Map<UUID, WorldShow> shows = new HashMap<>();
+
+    private static class WorldShow {
+        private final UUID worldId;
+        private BukkitTask task;
+        private int stage = 0;
+        private long stageStartTick = 0;
+
+        WorldShow(UUID worldId) {
+            this.worldId = worldId;
+        }
+    }
 
     @Override
     public void onEnable() {
         getLogger().info("FireworksPlugin enabled!");
-        getCommand("fireworks").setExecutor((sender, command, label, args) -> {
-            if (args.length == 0) {
-                sender.sendMessage("§c使い方: /fireworks <start|stop>");
+        var fireworksCommand = getCommand("fireworks");
+        fireworksCommand.setExecutor((sender, command, label, args) -> {
+            if (args.length == 0 || args.length > 3) {
+                sender.sendMessage(USAGE);
                 return true;
             }
-            if (args[0].equalsIgnoreCase("start")) {
-                if (running) {
-                    sender.sendMessage("§eすでに打ち上げ中です。");
+            boolean start = args[0].equalsIgnoreCase("start");
+            boolean stop = args[0].equalsIgnoreCase("stop");
+            if (!start && !stop) {
+                sender.sendMessage(USAGE);
+                return true;
+            }
+            boolean now = false;
+            String worldName = null;
+            for (int i = 1; i < args.length; i++) {
+                if (args[i].equalsIgnoreCase("now") && !now) {
+                    now = true;
+                } else if (worldName == null) {
+                    worldName = args[i];
+                } else {
+                    sender.sendMessage(USAGE);
                     return true;
                 }
-                sender.sendMessage("§a花火の打ち上げを開始しました。パターン演出モード");
-                running = true;
-                scheduleNextFirework();
-                return true;
-            } else if (args[0].equalsIgnoreCase("stop")) {
-                if (running) {
-                    running = false;
-                    if (fireworkTask != null) {
-                        fireworkTask.cancel();
-                        fireworkTask = null;
-                    }
-                    sender.sendMessage("§e花火の打ち上げを停止しました。");
-                } else {
-                    sender.sendMessage("§c打ち上げは開始されていません。");
-                }
-                return true;
-            } else {
-                sender.sendMessage("§c使い方: /fireworks <start|stop>");
+            }
+            World world = resolveWorld(sender, worldName);
+            if (world == null) {
                 return true;
             }
+            if (start) {
+                startShow(sender, world, now);
+            } else {
+                stopShow(sender, world, now);
+            }
+            return true;
+        });
+        fireworksCommand.setTabCompleter((sender, command, alias, args) -> {
+            if (args.length == 1) {
+                return filterPrefix(List.of("start", "stop"), args[0]);
+            }
+            if (args.length >= 2 && args.length <= 3
+                    && (args[0].equalsIgnoreCase("start") || args[0].equalsIgnoreCase("stop"))) {
+                boolean hasNow = false;
+                boolean hasWorld = false;
+                for (int i = 1; i < args.length - 1; i++) {
+                    if (args[i].equalsIgnoreCase("now")) {
+                        hasNow = true;
+                    } else {
+                        hasWorld = true;
+                    }
+                }
+                List<String> candidates = new ArrayList<>();
+                if (!hasWorld) {
+                    Bukkit.getWorlds().forEach(w -> candidates.add(w.getName()));
+                }
+                if (!hasNow) {
+                    candidates.add("now");
+                }
+                return filterPrefix(candidates, args[args.length - 1]);
+            }
+            return List.of();
         });
     }
 
-    // 花火打ち上げをランダム間隔で再スケジューリング
-    private void scheduleNextFirework() {
-        fireworkStage = 0;
-        stageStartTick = Bukkit.getServer().getCurrentTick();
-        scheduleNextFireworkStage();
+    private static List<String> filterPrefix(List<String> options, String input) {
+        String prefix = input.toLowerCase(Locale.ROOT);
+        return options.stream()
+                .filter(option -> option.toLowerCase(Locale.ROOT).startsWith(prefix))
+                .toList();
     }
 
-    private void scheduleNextFireworkStage() {
-        if (!running) return;
-        long elapsed = Bukkit.getServer().getCurrentTick() - stageStartTick;
+    private World resolveWorld(CommandSender sender, String worldName) {
+        if (worldName == null) {
+            if (sender instanceof Player player) {
+                return player.getWorld();
+            }
+            sender.sendMessage("§cコンソールからはワールド名を指定してください。");
+            sender.sendMessage(USAGE);
+            return null;
+        }
+        World world = Bukkit.getWorld(worldName);
+        if (world == null) {
+            sender.sendMessage("§cワールドが見つかりません: " + worldName);
+        }
+        return world;
+    }
+
+    private void startShow(CommandSender sender, World world, boolean now) {
+        if (now) {
+            setWorldTime(sender, world, 18000, "夜（minecraft:midnight）");
+        }
+        if (shows.containsKey(world.getUID())) {
+            sender.sendMessage("§e[" + world.getName() + "] すでに打ち上げ中です。");
+            return;
+        }
+        WorldShow show = new WorldShow(world.getUID());
+        shows.put(world.getUID(), show);
+        sender.sendMessage("§a[" + world.getName() + "] 花火の打ち上げを開始しました。パターン演出モード");
+        scheduleNextFirework(show);
+    }
+
+    private void stopShow(CommandSender sender, World world, boolean now) {
+        if (now) {
+            setWorldTime(sender, world, 6000, "昼（minecraft:noon）");
+        }
+        WorldShow show = shows.remove(world.getUID());
+        if (show != null) {
+            cancelShow(show);
+            sender.sendMessage("§e[" + world.getName() + "] 花火の打ち上げを停止しました。");
+        } else {
+            sender.sendMessage("§c[" + world.getName() + "] 打ち上げは開始されていません。");
+        }
+    }
+
+    private void cancelShow(WorldShow show) {
+        if (show.task != null) {
+            show.task.cancel();
+            show.task = null;
+        }
+    }
+
+    private void setWorldTime(CommandSender sender, World world, long time, String label) {
+        try {
+            world.setTime(time);
+            sender.sendMessage("§e[" + world.getName() + "] 時刻を" + label + "に設定しました。");
+        } catch (IllegalArgumentException e) {
+            // ネザー・エンドなどワールドクロックを持たないワールド
+            sender.sendMessage("§c[" + world.getName() + "] このワールドは時刻を変更できません。");
+        }
+    }
+
+    private boolean isActive(WorldShow show) {
+        return shows.get(show.worldId) == show;
+    }
+
+    // 対象ワールドがアンロードされていたら停止し null を返す
+    private World getActiveWorld(WorldShow show) {
+        if (!isActive(show)) return null;
+        World world = Bukkit.getWorld(show.worldId);
+        if (world == null) {
+            shows.remove(show.worldId);
+            cancelShow(show);
+        }
+        return world;
+    }
+
+    private void launchAtArmorStands(World world, java.util.function.BiConsumer<World, org.bukkit.entity.ArmorStand> launcher) {
+        long time = world.getTime();
+        if (time >= 13000 && time <= 23000) {
+            world.getEntitiesByClass(org.bukkit.entity.ArmorStand.class).stream()
+                .filter(as -> as.getCustomName() != null && as.getCustomName().startsWith("花火"))
+                .forEach(as -> launcher.accept(world, as));
+        }
+    }
+
+    // 花火打ち上げをランダム間隔で再スケジューリング
+    private void scheduleNextFirework(WorldShow show) {
+        show.stage = 0;
+        show.stageStartTick = Bukkit.getServer().getCurrentTick();
+        scheduleNextFireworkStage(show);
+    }
+
+    private void scheduleNextFireworkStage(WorldShow show) {
+        if (!isActive(show)) return;
+        long elapsed = Bukkit.getServer().getCurrentTick() - show.stageStartTick;
         int delay;
-        if (fireworkStage == 0) { // 30秒間 2~3秒
+        if (show.stage == 0) { // 30秒間 2~3秒
             if (elapsed < 600) {
                 delay = 40 + (int)(Math.random() * 21); // 40~60tick
-                scheduleFireworkAndNext(delay, 0);
+                scheduleFireworkAndNext(show, delay);
             } else {
-                fireworkStage = 1;
-                scheduleNextFireworkStage();
+                show.stage = 1;
+                scheduleNextFireworkStage(show);
             }
-        } else if (fireworkStage == 1) { // 30秒間 1~2秒
+        } else if (show.stage == 1) { // 30秒間 1~2秒
             if (elapsed < 1200) {
                 delay = 20 + (int)(Math.random() * 21); // 20~40tick
-                scheduleFireworkAndNext(delay, 1);
+                scheduleFireworkAndNext(show, delay);
             } else {
-                fireworkStage = 2;
-                scheduleNextFireworkStage();
+                show.stage = 2;
+                scheduleNextFireworkStage(show);
             }
-        } else if (fireworkStage == 2) { // 30秒間 0.5秒
+        } else if (show.stage == 2) { // 30秒間 0.5秒
             if (elapsed < 1800) {
                 delay = 10; // 0.5秒
-                scheduleFireworkAndNext(delay, 2);
+                scheduleFireworkAndNext(show, delay);
             } else {
-                fireworkStage = 3;
-                scheduleNextFireworkStage();
+                show.stage = 3;
+                scheduleNextFireworkStage(show);
             }
-        } else if (fireworkStage == 3) { // フィナーレ前アイドル3秒
-            fireworkTask = Bukkit.getScheduler().runTaskLater(this, () -> {
-                fireworkStage = 4;
-                scheduleNextFireworkStage();
+        } else if (show.stage == 3) { // フィナーレ前アイドル3秒
+            show.task = Bukkit.getScheduler().runTaskLater(this, () -> {
+                show.stage = 4;
+                scheduleNextFireworkStage(show);
             }, 60L);
-        } else if (fireworkStage == 4) { // フィナーレ大花火（ハート型）
-            fireworkTask = Bukkit.getScheduler().runTaskLater(this, () -> {
-                Bukkit.getWorlds().forEach(world -> {
-                    long time = world.getTime();
-                    if (time >= 13000 && time <= 23000) {
-                        world.getEntitiesByClass(org.bukkit.entity.ArmorStand.class).stream()
-                            .filter(as -> as.getCustomName() != null && as.getCustomName().startsWith("花火"))
-                            .forEach(as -> launchGrateWallFirework(world, as));
-                    }
-                });
-                fireworkStage = 5;
-                scheduleNextFireworkStage();
+        } else if (show.stage == 4) { // フィナーレ大花火（ハート型）
+            show.task = Bukkit.getScheduler().runTaskLater(this, () -> {
+                World world = getActiveWorld(show);
+                if (world == null) return;
+                launchAtArmorStands(world, this::launchGrateWallFirework);
+                show.stage = 5;
+                scheduleNextFireworkStage(show);
             }, 0L);
-        } else if (fireworkStage == 5) { // フィナーレ後30秒アイドル→自動再開
-            fireworkTask = Bukkit.getScheduler().runTaskLater(this, () -> {
-                if (running) {
+        } else if (show.stage == 5) { // フィナーレ後30秒アイドル→自動再開
+            show.task = Bukkit.getScheduler().runTaskLater(this, () -> {
+                if (isActive(show)) {
                     // 再開
-                    scheduleNextFirework();
+                    scheduleNextFirework(show);
                 }
             }, 600L);
         }
     }
 
-    private void scheduleFireworkAndNext(int delay, int stage) {
-        fireworkTask = Bukkit.getScheduler().runTaskLater(this, () -> {
-            Bukkit.getWorlds().forEach(world -> {
-                long time = world.getTime();
-                if (time >= 13000 && time <= 23000) {
-                    world.getEntitiesByClass(org.bukkit.entity.ArmorStand.class).stream()
-                        .filter(as -> as.getCustomName() != null && as.getCustomName().startsWith("花火"))
-                        .forEach(as -> launchPatternFireworks(world, as));
-                }
-            });
-            scheduleNextFireworkStage();
+    private void scheduleFireworkAndNext(WorldShow show, int delay) {
+        show.task = Bukkit.getScheduler().runTaskLater(this, () -> {
+            World world = getActiveWorld(show);
+            if (world == null) return;
+            launchAtArmorStands(world, this::launchPatternFireworks);
+            scheduleNextFireworkStage(show);
         }, delay);
     }
 
@@ -307,6 +439,8 @@ public class FireworksPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        shows.values().forEach(this::cancelShow);
+        shows.clear();
         getLogger().info("FireworksPlugin disabled!");
     }
 }

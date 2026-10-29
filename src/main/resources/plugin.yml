@@ -6,6 +6,6 @@ api-version: '26.3'
 commands:
   fireworks:
     description: 花火の打ち上げ開始・停止
-    usage: /fireworks <start|stop>
+    usage: /fireworks <start|stop> [world] [now]
     permission: fireworks.use
     permission-message: §c権限がありません。
